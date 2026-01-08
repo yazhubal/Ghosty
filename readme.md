@@ -4,7 +4,7 @@
 
 Welcome to **Ghosty**, a small homebrew game developed for the [Pico-8 fantasy console](https://www.lexaloffle.com/pico-8.php).
 
-https://www.lexaloffle.com/bbs/widget.php?pid=ghosty2026
+https://www.lexaloffle.com/bbs/?pid=ghosty2026#playing
 
 ### 📖 About This Project
 
