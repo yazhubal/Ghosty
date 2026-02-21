@@ -1,180 +1,235 @@
+-- ghosty - refactored
+-- by gemini sensei 👻
+
 function _init()
- bullet_x = 0 
- bullet_y = 0
- shooting = false 
+  -- player object
+  p = {
+    x = 60,
+    y = 95,
+    sp = 1,
+    w = 8,
+    h = 8,
+    powerup_t = 0 -- time left for triple shot
+  }
 
- x= 60 
- y= 95
+  -- multiple objects lists! 🔫👻💥
+  bullets = {}
+  aliens = {}
+  expls = {}
+  items = {} -- for power-ups
 
- alien_x = 128      
- alien_y = rnd(10 + 88)    
- alien_alive = true 
-
- score=0
- highscore="score:"
- restart="For restart press FIRE"
- game_over = false
-
- expl_x = 0        -- Where did the explosion happen?
-  expl_y = 0
-  expl_timer = 0    -- How long should the explosion stay on screen?
-
- alien_speed=1
-
- game_started = false -- The game is paused at the start
-
-
-end
-
--- DRAW --
-function _draw()
-  cls() -- Always clean the screen first
+  -- game state
+  score = 0
+  game_over = false
+  game_started = false
   
-  -- TITLE SCREEN DRAW
-  if (game_started == false) then
-      -- Center the text roughly
-      print("GHOST SHOOTER", 40, 50, 7) 
-      
-      -- Make the "Press Z" text blink! 
-      -- (time() changes constantly, so this turns on/off every 0.5 sec)
-      if (time() % 1 < 0.5) then
-          print("press z to start", 35, 70, 6)
-      end
-      
-      return -- STOP here (don't draw the map or hero)
-  end
+  -- spawning logic
+  spawn_timer = 0
+  spawn_rate = 90 -- frames between spawns
+  alien_speed = 1
 
- cls()                   
- map(0, 0, 0, 0, 16, 16) 
--- Animation math: Flips between 1 and 2
--- Default to standing still (Sprite 1)
- local hero_spr = 1 
- 
- -- Check: Are we pressing ANY arrow button? (Left, Right, Up, or Down)
- if (btn(0) or btn(1) or btn(2) or btn(3)) then
-    -- If yes, override sprite with the animation math!
-    hero_spr = 1 + flr(time() * 12) % 2
- end
-
- spr(hero_spr, x, y)  
-    
- if (shooting) then
-   spr(4, bullet_x, bullet_y) 
- end
-    
-if (alien_alive) then
-   -- This math creates a number that flips between 4 and 5
-   -- speed: change 10 to make it faster/slower
-   local anim_frame = 5 + flr(time() * 10) % 2
-   
-   spr(anim_frame, alien_x, alien_y)
+  -- juicy effects ✨
+  shake = 0
+  
+  -- messages
+  msg_restart = "for restart press fire"
 end
 
--- Explosion after hit
- if (expl_timer > 0) then
-    spr(7, expl_x, expl_y)
- end
-
- print (score, 23 , 0, 7)
- print (highscore, 0, 0, 7)
-
- -- I combined your two Game Over print blocks here!
- if (game_over) then
-    print("game over", 48, 60, 8) 
-    print(restart, 20, 70, 7)
- end
- 
+-- helper: spawn a new spooky alien 👻
+function spawn_alien()
+  local new_en = {
+    x = 128,
+    y = 10 + rnd(84),
+    sp = 5,
+    w = 8,
+    h = 8
+  }
+  add(aliens, new_en)
 end
 
--- UPDATE --
 function _update()
+  -- title screen check
+  if not game_started then
+    if btnp(4) then
+      game_started = true
+      music(0)
+    end
+    return
+  end
 
--- TITLE SCREEN CHECK
-  if (game_started == false) then
-      if (btnp(4)) then       -- If Z is pressed
-          game_started = true -- Start the game!
-          music(0)            -- Start the music NOW
+  -- game over check
+  if game_over then
+    if btnp(4) then _init() end
+    return
+  end
+
+  -- player movement
+  if btn(0) then p.x -= 2 end
+  if btn(1) then p.x += 2 end
+  if btn(2) then p.y -= 2 end
+  if btn(3) then p.y += 2 end
+
+  -- safety walls (clamping) 🚧
+  p.y = mid(10, p.y, 94)
+  p.x = mid(0, p.x, 120)
+
+  -- shooting (triple shot logic!)
+  if btnp(4) then
+    sfx(0)
+    if p.powerup_t > 0 then
+      -- triple shot! 🔫🔫🔫
+      add(bullets, {x = p.x, y = p.y, w = 8, h = 8, dy = 0})
+      add(bullets, {x = p.x, y = p.y, w = 8, h = 8, dy = -0.5})
+      add(bullets, {x = p.x, y = p.y, w = 8, h = 8, dy = 0.5})
+    else
+      -- normal shot
+      add(bullets, {x = p.x, y = p.y, w = 8, h = 8, dy = 0})
+    end
+  end
+
+  -- update bullets
+  for b in all(bullets) do
+    b.x += 3
+    b.y += b.dy
+    -- delete bullet if it leaves screen
+    if b.x > 128 or b.y < 0 or b.y > 128 then del(bullets, b) end
+  end
+
+  -- spawn aliens
+  spawn_timer -= 1
+  if spawn_timer <= 0 then
+    spawn_alien()
+    -- reset timer (gets faster as you score!)
+    spawn_timer = max(20, spawn_rate - (score * 0.5))
+  end
+
+  -- update aliens
+  for en in all(aliens) do
+    en.x -= alien_speed
+    
+    -- game over if any alien escapes
+    if en.x < -8 then
+      game_over = true
+      sfx(2)
+      music(-1)
+      shake = 10 
+    end
+
+    -- collision with bullets
+    for b in all(bullets) do
+      if collide(b, en) then
+        sfx(1)
+        shake = 4 
+        add(expls, {x = en.x, y = en.y, t = 10})
+        
+        -- chance to drop power-up! (10%)
+        if rnd(1) < 0.1 then
+          add(items, {x = en.x, y = en.y, w = 8, h = 8, sp = 10})
+        end
+
+        del(aliens, en)
+        del(bullets, b)
+        
+        score += 1
+        alien_speed = 1 + flr(score / 10) * 0.2
       end
-      return                  -- STOP here (don't run the rest of the game)
+    end
   end
 
-  -- RESTART CHECK
-  if (game_over) then
-      if (btn(4)) _init()  
-      return              
+  -- update items (power-ups)
+  for i in all(items) do
+    i.x -= 0.5 -- float slowly to the left
+    i.y += sin(time()) * 0.2 -- bob up and down
+    
+    -- collect power-up
+    if collide(p, i) then
+      sfx(3) -- play a "pickup" sound if you have one!
+      p.powerup_t = 300 -- 10 seconds of glory
+      del(items, i)
+    end
+    
+    if i.x < -8 then del(items, i) end
   end
 
-  -- MOVEMENT
-  if (btn(1)) x = x + 2 --to change speed of ghost add number
-  if (btn(0)) x = x - 2 
-  if (btn(2)) y = y - 2
-  if (btn(3)) y = y + 2
+  -- update explosions
+  for ex in all(expls) do
+    ex.t -= 1
+    if ex.t <= 0 then del(expls, ex) end
+  end
 
-  -- NEW: SAFETY WALLS (Clamping) 🚧
+  -- power-up timer decay
+  if p.powerup_t > 0 then p.powerup_t -= 1 end
+
+  -- update shake decay
+  shake = max(0, shake * 0.8)
+  if (shake < 0.1) shake = 0
+end
+
+function _draw()
+  local sx = rnd(shake) - shake/2
+  local sy = rnd(shake) - shake/2
+  camera(sx, sy)
+
+  cls()
   
-  -- 1. Don't hit the ceiling (Score)
-  if (y < 10) then
-      y = 10
+  -- title screen
+  if not game_started then
+    print("ghost shooter", 40, 50, 7)
+    if (time() % 1 < 0.5) print("press z to start", 35, 70, 6)
+    return
   end
 
-  -- 2. Don't hit the floor
-  if (y > 94) then  -- You can tweak 100 if it's too high/low!
-      y = 94
+  -- draw the world
+  map(0, 0, 0, 0, 16, 16)
+
+  -- draw items
+  for i in all(items) do
+    spr(i.sp, i.x, i.y)
   end
 
-  -- BULLET BOUNDARY
-  if (bullet_x > 128) then 
-      shooting = false
+  -- draw player
+  local p_sp = p.sp
+  if (btn(0) or btn(1) or btn(2) or btn(3)) then
+    p_sp += flr(time() * 12) % 2
+  end
+  -- flash player if powered up! ⚡
+  if (p.powerup_t > 0 and time() % 0.2 < 0.1) p_sp = 1 
+  
+  spr(p_sp, p.x, p.y)
+
+  -- draw bullets
+  for b in all(bullets) do
+    spr(4, b.x, b.y)
   end
 
-  -- SHOOTING (Changed to btnp!)
-  if (btnp(4)) then        -- <--- CHANGED THIS to btnp
-    bullet_x = x        
-    bullet_y = y        
-    shooting = true      
-    sfx(00)              
+  -- draw aliens
+  for en in all(aliens) do
+    local en_sp = en.sp + flr(time() * 10) % 2
+    spr(en_sp, en.x, en.y)
   end
 
-  -- ALIEN MOVEMENT
-  if (alien_alive) then
-    alien_x = alien_x - alien_speed -- increasing speed of alien
+  -- draw explosions
+  for ex in all(expls) do
+    spr(7, ex.x, ex.y)
   end
 
-  -- GAME OVER CHECK
-  if (alien_x < 0) then
-    game_over = true
-    alien_alive = false
-    sfx(2)
-    music(-1)  -- tells the music to STOP immediately
+  -- draw ui
+  print("score: "..score, 0, 0, 7)
+  if p.powerup_t > 0 then
+    rectfill(0, 124, p.powerup_t / 300 * 128, 127, 12) -- power-up bar!
   end
 
-  -- BULLET MOVEMENT
-  if (shooting) then
-    bullet_x = bullet_x + 3  -- Made bullet faster (optional!)
+  -- game over screen
+  if game_over then
+    print("game over", 48, 60, 8)
+    print(msg_restart, 20, 70, 7)
   end
+end
 
--- COLLISION
-  if (bullet_x + 8 > alien_x and bullet_x < alien_x + 8 and
-      bullet_y + 8 >= alien_y and bullet_y < alien_y + 8) then
-      
-      sfx(01)
-      
-      -- NEW: Save the spot for the explosion!
-      expl_x = alien_x
-      expl_y = alien_y
-      expl_timer = 10   -- Show explosion for 10 frames (1/3rd of a second)
-
-      -- Reset Alien
-      alien_x = 128  
-      alien_y = 10 + rnd(88) 
-      shooting = false
-      score = score + 1
-      --flr() rounds donw. So 4/5 = 0, but 5/5 =1.
-      alien_speed = 1 + flr(score / 10) * 0.3
-  end
-
-  -- NEW: Count down the timer
-  if (expl_timer > 0) then
-      expl_timer = expl_timer - 1
-  end
+-- helper: box collision (aabb) 📦
+function collide(a, b)
+  return not (a.x > b.x + b.w - 1 or
+              a.x + a.w - 1 < b.x or
+              a.y > b.y + b.h - 1 or
+              a.y + a.h - 1 < b.y)
 end
